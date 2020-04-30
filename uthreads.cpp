@@ -4,11 +4,12 @@
 
 #include "uthreads.h"
 #include <map>
-#include <queue>
 #include <memory>
+#include <queue>
+#include <utility>
 #include <setjmp.h>
-
 #include <signal.h>
+#include <sys/time.h>
 
 typedef void (*EntryPoint_t)(void);
 
@@ -24,12 +25,12 @@ typedef unsigned long address_t;
    Use this as a black box in your code. */
 static address_t translate_address(address_t addr)
 {
-	address_t ret;
-	asm volatile("xor    %%fs:0x30,%0\n"
-				 "rol    $0x11,%0\n"
-	: "=g" (ret)
-	: "0" (addr));
-	return ret;
+    address_t ret;
+    asm volatile("xor    %%fs:0x30,%0\n"
+                 "rol    $0x11,%0\n"
+    : "=g" (ret)
+    : "0" (addr));
+    return ret;
 }
 
 #else
@@ -43,12 +44,12 @@ typedef unsigned int address_t;
    Use this as a black box in your code. */
 address_t translate_address(address_t addr)
 {
-	address_t ret;
-	asm volatile("xor    %%gs:0x18,%0\n"
-		"rol    $0x9,%0\n"
-				 : "=g" (ret)
-				 : "0" (addr));
-	return ret;
+    address_t ret;
+    asm volatile("xor    %%gs:0x18,%0\n"
+        "rol    $0x9,%0\n"
+                 : "=g" (ret)
+                 : "0" (addr));
+    return ret;
 }
 
 
@@ -58,92 +59,215 @@ address_t translate_address(address_t addr)
 class Thread
 {
 public:
-	enum states
-	{
-		READY,
-		RUNNING,
-		BLOCKED
-	};
+    enum states
+    {
+        READY,
+        RUNNING,
+        BLOCKED,
+        TERMINATED
+    };
 
-	Thread(int id, int priority, EntryPoint_t entry)
-			: id(id), priority(priority), state(READY), stack(new char[STACK_SIZE]), entry(entry)
-	{
-		address_t sp = (address_t) stack.get() + STACK_SIZE - sizeof(address_t);
-		auto pc = (address_t) entry;
-		sigsetjmp(environment, 1);
-		(environment->__jmpbuf)[JB_SP] = translate_address(sp);
-		(environment->__jmpbuf)[JB_PC] = translate_address(pc);
-		sigemptyset(&environment->__saved_mask);
-	}
+    Thread(int id, int quantum, int priority, EntryPoint_t entry, bool mainThread = false)
+            : id(id), quantum(quantum), priority(priority), state(READY), entry(entry)
+    {
+        sigsetjmp(environment, 1);
+        if (!mainThread)
+        {
+            stack = std::unique_ptr<char[]>(new char[STACK_SIZE]);
+            address_t sp = (address_t) stack.get() + STACK_SIZE - sizeof(address_t);
+            auto pc = (address_t) entry;
+            (environment->__jmpbuf)[JB_SP] = translate_address(sp);
+            (environment->__jmpbuf)[JB_PC] = translate_address(pc);
+        }
+        sigemptyset(&environment->__saved_mask);
+    }
 
-	sigjmp_buf &getEnvironment()
-	{
-		return environment;
-	}
-
+    sigjmp_buf &getEnvironment(){return environment;}
+    int getId() const{return id;}
+    int getPriority() const{return priority;}
+    void setPriority(int priority){ this->priority = priority;}
+    states getState() const{return state;}
+    void setState(states state){Thread::state = state;}
 private:
-	int id;
-	int quantum;
-	int totalQuantum;
-	int priority;
-	states state;
-	sigjmp_buf environment;
-	std::unique_ptr<char[]> stack;
-	EntryPoint_t entry;
-};
-
-
-class Scheduler
-{
-public:
-
-private:
-	std::map<int, std::shared_ptr<Thread>> threads;
-	std::shared_ptr <Thread> running;
-	std::queue <std::shared_ptr<Thread>> ready;
+    int id;
+    int quantum;
+    int totalQuantum;
+    int priority;
+    states state;
+    sigjmp_buf environment;
+    std::unique_ptr<char[]> stack;
+    EntryPoint_t entry;
 };
 
 
 class Dispatcher
 {
 public:
-	void switchToThread(std::shared_ptr <Thread> currentThread,
-						std::shared_ptr <Thread> targetThread)
-	{
-		int ret_val = sigsetjmp(currentThread->getEnvironment(), 1);
-		if (ret_val == 1)
-		{
-			return;
-		}
-		siglongjmp(targetThread->getEnvironment(), 1);
-	}
+    void switchToThread(std::shared_ptr<Thread> currentThread,
+                        std::shared_ptr<Thread> targetThread)
+    {
+        int ret_val = sigsetjmp(currentThread->getEnvironment(), 1);
+        if (ret_val == 1)
+        {
+            return;
+        }
+        siglongjmp(targetThread->getEnvironment(), 1);
+    }
 
 private:
 
 };
-//#include <stdio.h>
-//#include <setjmp.h>
-//#include <unistd.h>
-//#include <sys/time.h>
-//
-//#define SECOND 1000000
-//
-//char stack1[STACK_SIZE];
-//char stack2[STACK_SIZE];
-//
-//sigjmp_buf env[2];
 
 
-//void switchThreads(void)
-//{
-//    static int currentThread = 0;
-//
-//    int ret_val = sigsetjmp(env[currentThread], 1);
-//    printf("SWITCH: ret_val=%d\n", ret_val);
-//    if (ret_val == 1)
-//    {
-//        return;
-//    }
-//    currentThread = 1 - currentThread;
-//    siglongjmp(env[currentThread], 1);
-//}
+class Scheduler
+{
+    static Scheduler *me;
+public:
+    explicit Scheduler(std::map<int, int> quantums)
+            : quantums(std::move(quantums))
+    {
+        me = this;
+        timer.it_interval.tv_sec = 0;
+        timer.it_interval.tv_usec = 0;
+        timer.it_value.tv_sec = 0;
+        sa.sa_handler = &Scheduler::timerHandler;
+        if (sigaction(SIGVTALRM, &sa, NULL) < 0)
+        {
+            printf("sigaction error.");//TODO
+        }
+        auto mainThread = std::make_shared<Thread>(0, quantums[0], 0, nullptr, true);
+        running = mainThread;
+        threads[0] = mainThread;
+        setTimer(0);
+
+    }
+
+    void setTimer(int priority)
+    {
+        timer.it_value.tv_usec = quantums[priority];
+        if (setitimer(ITIMER_VIRTUAL, &timer, NULL))
+        {
+            printf("setitimer error.");//TODO
+        }
+        std::cerr << "priority: " << priority << " quantums priority: " << quantums[priority]
+                  << '\n';
+    }
+
+    int addThread(EntryPoint_t entryPoint, int priority)
+    {
+        int size = threads.size();
+        if (size == MAX_THREAD_NUM)
+        {
+            return -1;
+        }
+        threads[size] = std::make_shared<Thread>(size, quantums[priority], priority, entryPoint);
+        ready.push_back(threads[size]);
+        return 0;
+    }
+
+    static void timerHandler(int sig)
+    {
+        std::cerr << "Handling sig" << std::endl;
+        me->ready.push_back(me->running);
+        std::shared_ptr<Thread> prev(me->running);
+        me->running = me->ready.front();
+        me->ready.pop_front();
+        while (me->running->getState() == Thread::TERMINATED)
+        {
+            me->threads.erase(me->running->getId());
+            me->running = me->ready.front();
+            me->ready.pop_front();
+        }
+        me->setTimer(me->running->getPriority());
+        std::cerr << "prev id: " << prev->getId() << " running id: " << me->running->getId() <<
+                  std::endl;
+        me->dispatcher.switchToThread(prev, me->running);
+    }
+
+    int changePriority(int tid, int priority)
+    {
+        if (tid == 0)
+        {
+            return -1;
+        }
+        threads[tid]->setPriority(priority);
+        return 0;
+    }
+
+    int terminate(int tid)
+    {
+        threads[tid]->setState(Thread::TERMINATED);
+        if (tid==0)
+        {
+            clearAndExit();
+        }
+        if (running->getId() == tid)
+        {
+            running = ready.front();
+            ready.pop_front();
+            setTimer(running->getPriority());
+            dispatcher.switchToThread(threads[tid], running);
+        }
+        return 0;
+    }
+    void clearAndExit()
+    {
+        running.reset();
+        ready.clear();
+        threads.clear();
+        exit(0);
+    }
+
+private:
+    std::map<int, std::shared_ptr<Thread>> threads;
+    std::map<int, int> quantums;
+    std::shared_ptr<Thread> running;
+    std::deque<std::shared_ptr<Thread>> ready;
+    Dispatcher dispatcher;
+    struct sigaction sa = {0};
+    struct itimerval timer;
+};
+Scheduler*Scheduler::me;
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+std::shared_ptr<Scheduler> scheduler;
+
+int uthread_init(int *quantum_usecs, int size)
+{
+    std::map<int, int> quantums;
+    for (int i = 0; i < size; ++i)
+    {
+        if (quantum_usecs[i] < 0)
+        {
+            return -1;
+        }
+        quantums[i] = quantum_usecs[i];
+    }
+    scheduler = std::make_shared<Scheduler>(quantums);
+
+    return 0;
+}
+
+
+sigset_t maskSignals;
+int res = sigemptyset(&maskSignals);
+int x = sigaddset(&maskSignals, SIGALRM);
+
+int uthread_spawn(void (*f)(void), int priority)
+{
+    return scheduler->addThread(f, priority);
+}
+
+int uthread_change_priority(int tid, int priority)
+{
+    return scheduler->changePriority(tid, priority);
+}
+
+int uthread_terminate(int tid)
+{
+    sigprocmask(SIG_BLOCK, &maskSignals, NULL);
+    int result = scheduler->terminate(tid);
+    sigprocmask(SIG_UNBLOCK, &maskSignals, NULL);
+    return result;
+}

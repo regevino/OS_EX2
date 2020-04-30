@@ -5,10 +5,6 @@
 void f();
 void g();
 
-static Thread thread1(1, 1, f);
-static Thread thread2(2, 1, g);
-std::shared_ptr<Thread> pThread1(&thread1);
-std::shared_ptr<Thread> pThread2(&thread2);
 
 Dispatcher dispatcher;
 
@@ -17,12 +13,16 @@ void f(void)
     int i = 0;
     while(1){
         ++i;
-        printf("in f (%d)\n",i);
-        if (i % 10 == 0)
+        if (i % 100 == 0)
         {
-			dispatcher.switchToThread(pThread1, pThread2);
-		}
+            printf("in f (%d)\n",i);
+        }
+        if (i > 1500)
+        {
+            uthread_terminate(2);
+        }
         usleep(10000);
+
     }
 }
 
@@ -31,19 +31,30 @@ void g(void)
     int i = 0;
     while(1){
         ++i;
-        printf("in g (%d)\n",i);
-		if (i % 10 == 0)
-		{
-			dispatcher.switchToThread(pThread2, pThread1);
-		}
-        usleep(10000);
+        if (i % 10 == 0)
+        {
+            printf("in g (%d)\n",i);
+        }
+        usleep(1000);
     }
 }
 
+void timer_handler(int)
+{
+    std::cerr << "SIGNAL" << std::endl;
+}
 
 int main()
 {
-	f();
 //	dispatcher.switchToThread(pThread1, pThread2);
+    int a = 1000;
+    uthread_init(&a, 1);
+    uthread_spawn(f, 0);
+    uthread_spawn(g, 0);
+
+    while(1)
+    {
+
+    }
 	return 0;
 }
