@@ -68,7 +68,7 @@ public:
     };
 
     Thread(int id, int quantum, int priority, EntryPoint_t entry, bool mainThread = false)
-            : id(id), quantum(quantum), priority(priority), state(READY), entry(entry)
+            : id(id), quantum(quantum), priority(priority), state(READY), entry(entry), stack(nullptr)
     {
         sigsetjmp(environment, 1);
         if (!mainThread)
@@ -78,8 +78,8 @@ public:
             auto pc = (address_t) entry;
             (environment->__jmpbuf)[JB_SP] = translate_address(sp);
             (environment->__jmpbuf)[JB_PC] = translate_address(pc);
+            sigemptyset(&environment->__saved_mask);
         }
-        sigemptyset(&environment->__saved_mask);
     }
 
     sigjmp_buf &getEnvironment(){return environment;}
@@ -96,6 +96,14 @@ private:
     states state;
     sigjmp_buf environment;
     std::unique_ptr<char[]> stack;
+public:
+    std::unique_ptr<char[]> &getStack()
+    {
+
+        return stack;
+    }
+
+private:
     EntryPoint_t entry;
 };
 
@@ -103,14 +111,20 @@ private:
 class Dispatcher
 {
 public:
-    void switchToThread(std::shared_ptr<Thread> currentThread,
-                        std::shared_ptr<Thread> targetThread)
+    void switchToThread(const std::shared_ptr<Thread>& currentThread,
+                        const std::shared_ptr<Thread>& targetThread)
     {
+        if (currentThread->getId() == 2)
+        {
+            std::cerr << "HELLLP its thread 2!!!!" << std::endl;
+        }
         int ret_val = sigsetjmp(currentThread->getEnvironment(), 1);
         if (ret_val == 1)
         {
+            std::cerr << "Returning to " << currentThread->getId() << '\n';
             return;
         }
+        std::cerr << "Jumping to " << targetThread->getId() << '\n';
         siglongjmp(targetThread->getEnvironment(), 1);
     }
 
@@ -161,16 +175,17 @@ public:
             return -1;
         }
         threads[size] = std::make_shared<Thread>(size, quantums[priority], priority, entryPoint);
-        ready.push_back(threads[size]);
+        ready.push_back(std::shared_ptr<Thread>(threads[size]));
         return 0;
     }
 
     static void timerHandler(int sig)
     {
+        auto id = me->running->getId();
         std::cerr << "Handling sig" << std::endl;
         me->ready.push_back(me->running);
-        std::shared_ptr<Thread> prev(me->running);
-        me->running = me->ready.front();
+        std::shared_ptr<Thread> prev = me->running;
+        me->running = std::shared_ptr<Thread>(me->ready.front());
         me->ready.pop_front();
         while (me->running->getState() == Thread::TERMINATED)
         {
@@ -181,7 +196,20 @@ public:
         me->setTimer(me->running->getPriority());
         std::cerr << "prev id: " << prev->getId() << " running id: " << me->running->getId() <<
                   std::endl;
+        std::cerr << "Id that started this call is: " << id << std::endl;
         me->dispatcher.switchToThread(prev, me->running);
+        for (const auto& thread:me->threads)
+        {
+            std::cerr << "Thread key is " << thread.first << " And thread id is " << thread
+                    .second->getId();
+            if (thread.second->getId() != 0)
+            {
+                void* p = thread.second->getStack().get();
+                long pp = (long)(p);
+                std::cerr << " And stack Location is: " <<
+                          pp  << " And call stack is: " << (long)&pp << std::endl;
+            }
+        }
     }
 
     int changePriority(int tid, int priority)
@@ -203,6 +231,7 @@ public:
         }
         if (running->getId() == tid)
         {
+            std::cerr << "HELP ME!\n";
             running = ready.front();
             ready.pop_front();
             setTimer(running->getPriority());
@@ -256,7 +285,10 @@ int x = sigaddset(&maskSignals, SIGALRM);
 
 int uthread_spawn(void (*f)(void), int priority)
 {
-    return scheduler->addThread(f, priority);
+    sigprocmask(SIG_BLOCK, &maskSignals, NULL);
+    int result = scheduler->addThread(f, priority);
+    sigprocmask(SIG_UNBLOCK, &maskSignals, NULL);
+    return result;
 }
 
 int uthread_change_priority(int tid, int priority)

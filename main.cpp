@@ -13,7 +13,7 @@ void f(void)
     int i = 0;
     while(1){
         ++i;
-        if (i % 100 == 0)
+        if (i % 1000 == 0)
         {
             printf("in f (%d)\n",i);
         }
@@ -21,7 +21,6 @@ void f(void)
         {
             uthread_terminate(2);
         }
-        usleep(10000);
 
     }
 }
@@ -31,11 +30,10 @@ void g(void)
     int i = 0;
     while(1){
         ++i;
-        if (i % 10 == 0)
+        if (i % 100 == 0)
         {
             printf("in g (%d)\n",i);
         }
-        usleep(1000);
     }
 }
 
