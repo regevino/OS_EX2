@@ -17,7 +17,7 @@ void f(void)
         {
             printf("in f (%d)\n",i);
         }
-        if (i > 1500)
+        if (i == 1500)
         {
             uthread_terminate(2);
         }
