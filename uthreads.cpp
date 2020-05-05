@@ -68,7 +68,8 @@ public:
     };
 
     Thread(int id, int quantum, int priority, EntryPoint_t entry, bool mainThread = false)
-            : id(id), quantum(quantum), priority(priority), state(READY), entry(entry), stack(nullptr)
+            : id(id), quantum(quantum), totalQuantum(mainThread), priority(priority), state(READY),
+            entry(entry), stack(nullptr)
     {
         sigsetjmp(environment, 1);
         if (!mainThread)
@@ -88,10 +89,18 @@ public:
     void setPriority(int priority){ this->priority = priority;}
     states getState() const{return state;}
     void setState(states state){Thread::state = state;}
+    void incrementTotalQuantum(){++totalQuantum;}
 private:
     int id;
     int quantum;
     int totalQuantum;
+public:
+    int getTotalQuantum() const
+    {
+        return totalQuantum;
+    }
+
+private:
     int priority;
     states state;
     sigjmp_buf environment;
@@ -111,25 +120,28 @@ private:
 class Dispatcher
 {
 public:
+    Dispatcher() : totalQuantums(0){}
+
     void switchToThread(const std::shared_ptr<Thread>& currentThread,
                         const std::shared_ptr<Thread>& targetThread)
     {
-        if (currentThread->getId() == 2)
-        {
-            std::cerr << "HELLLP its thread 2!!!!" << std::endl;
-        }
+        ++totalQuantums;
+        targetThread->incrementTotalQuantum();
         int ret_val = sigsetjmp(currentThread->getEnvironment(), 1);
         if (ret_val == 1)
         {
-            std::cerr << "Returning to " << currentThread->getId() << '\n';
             return;
         }
-        std::cerr << "Jumping to " << targetThread->getId() << '\n';
         siglongjmp(targetThread->getEnvironment(), 1);
     }
 
 private:
-
+    int totalQuantums;
+public:
+    int getTotalQuantums() const
+    {
+        return totalQuantums;
+    }
 };
 
 
@@ -170,51 +182,51 @@ public:
     int addThread(EntryPoint_t entryPoint, int priority)
     {
         int size = threads.size();
-        if (size == MAX_THREAD_NUM)
+        if (size == MAX_THREAD_NUM || !quantums.count(priority))
         {
             return -1;
         }
-        threads[size] = std::make_shared<Thread>(size, quantums[priority], priority, entryPoint);
+        try
+        {
+            threads[size] = std::make_shared<Thread>(size, quantums[priority], priority, entryPoint);
+        }catch (std::bad_alloc &e)
+        {
+            return -1;
+        }
+
         ready.push_back(std::shared_ptr<Thread>(threads[size]));
         return 0;
     }
 
     static void timerHandler(int sig)
     {
-        auto id = me->running->getId();
-        std::cerr << "Handling sig" << std::endl;
-        me->ready.push_back(me->running);
+        if (me->ready.empty())
+        {
+            return;
+        }
+        auto runningId = me->running->getId();
+        std::cerr << "\n------------ SIGNAL SIGVALRM --------------" << std::endl;
+        if (runningId != me->ready.front()->getId())
+        {
+            me->ready.push_back(me->running);
+        }
         std::shared_ptr<Thread> prev = me->running;
         me->running = std::shared_ptr<Thread>(me->ready.front());
         me->ready.pop_front();
         while (me->running->getState() == Thread::TERMINATED)
         {
-            me->threads.erase(me->running->getId());
+            me->threads.erase(runningId);
             me->running = me->ready.front();
             me->ready.pop_front();
         }
         me->setTimer(me->running->getPriority());
-        std::cerr << "prev id: " << prev->getId() << " running id: " << me->running->getId() <<
-                  std::endl;
-        std::cerr << "Id that started this call is: " << id << std::endl;
         me->dispatcher.switchToThread(prev, me->running);
-        for (const auto& thread:me->threads)
-        {
-            std::cerr << "Thread key is " << thread.first << " And thread id is " << thread
-                    .second->getId();
-            if (thread.second->getId() != 0)
-            {
-                void* p = thread.second->getStack().get();
-                long pp = (long)(p);
-                std::cerr << " And stack Location is: " <<
-                          pp  << " And call stack is: " << (long)&pp << std::endl;
-            }
-        }
+
     }
 
     int changePriority(int tid, int priority)
     {
-        if (tid == 0)
+        if (!threads.count(tid) || !quantums.count(priority))
         {
             return -1;
         }
@@ -224,6 +236,10 @@ public:
 
     int terminate(int tid)
     {
+        if (!threads.count(tid))
+        {
+            return -1;
+        }
         threads[tid]->setState(Thread::TERMINATED);
         if (tid==0)
         {
@@ -231,10 +247,7 @@ public:
         }
         if (running->getId() == tid)
         {
-            std::cerr << "HELP ME!\n";
             running = ready.front();
-            ready.pop_front();
-            setTimer(running->getPriority());
             dispatcher.switchToThread(threads[tid], running);
         }
         return 0;
@@ -245,6 +258,64 @@ public:
         ready.clear();
         threads.clear();
         exit(0);
+    }
+
+    int block(int tid)
+    {
+        if (tid == 0 || !threads.count(tid))
+        {
+            return -1;
+        }
+        if (tid != running->getId())
+        {
+            for (auto it = ready.begin(); it != ready.end(); it++ )
+            {
+                if (it->get()->getId() == tid)
+                {
+                    ready.erase(it);
+                    threads[tid]->setState(Thread::BLOCKED);
+                    break;
+                }
+            }
+        }
+        else
+        {
+            running = ready.front();
+            threads[tid]->setState(Thread::BLOCKED);
+            dispatcher.switchToThread(threads[tid], running);
+        }
+        return 0;
+
+    }
+
+    int resume(int tid)
+    {
+        if (!threads.count(tid))
+        {
+            return -1;
+        }
+        if (threads[tid]->getState() == Thread::BLOCKED)
+        {
+            ready.push_back(threads[tid]);
+            threads[tid]->setState(Thread::READY);
+        }
+        return 0;
+    }
+
+    int getRunningId()
+    {
+        return running->getId();
+    }
+
+    int getTotalQuantums(){return dispatcher.getTotalQuantums();}
+
+    int getThreadsQuantums(int tid)
+    {
+        if (!threads.count(tid))
+        {
+            return -1;
+        }
+        return threads[tid]->getTotalQuantum();
     }
 
 private:
@@ -285,6 +356,10 @@ int x = sigaddset(&maskSignals, SIGALRM);
 
 int uthread_spawn(void (*f)(void), int priority)
 {
+    if (priority < 0)
+    {
+        return -1;
+    }
     sigprocmask(SIG_BLOCK, &maskSignals, NULL);
     int result = scheduler->addThread(f, priority);
     sigprocmask(SIG_UNBLOCK, &maskSignals, NULL);
@@ -302,4 +377,29 @@ int uthread_terminate(int tid)
     int result = scheduler->terminate(tid);
     sigprocmask(SIG_UNBLOCK, &maskSignals, NULL);
     return result;
+}
+
+int uthread_block(int tid)
+{
+    return scheduler->block(tid);
+}
+
+int uthread_resume(int tid)
+{
+    return scheduler->resume(tid);
+}
+
+int uthread_get_tid()
+{
+    return scheduler->getRunningId();
+}
+
+int uthread_get_total_quantums()
+{
+    return scheduler->getTotalQuantums();
+}
+
+int uthread_get_quantums(int tid)
+{
+    return scheduler->getThreadsQuantums(tid);
 }
