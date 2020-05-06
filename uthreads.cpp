@@ -228,7 +228,7 @@ public:
         std::shared_ptr<Thread> prev = me->running;
         me->running = std::shared_ptr<Thread>(me->ready.front());
         me->ready.pop_front();
-        while (me->running->getState() == Thread::TERMINATED)
+        while (me->running->getState() == Thread::TERMINATED || me->running->getState() == Thread::BLOCKED)
         {
             me->running = me->ready.front();
             me->ready.pop_front();
@@ -262,6 +262,7 @@ public:
         threads[tid]->setState(Thread::TERMINATED);
 		ready.push_back(threads[tid]);
 		threads.erase(tid);
+
         if (tid==0)
         {
             clearAndExit();
@@ -269,8 +270,14 @@ public:
         if (running->getId() == tid)
         {
 
-            running = ready.front();
-            dispatcher.switchToThread(threads[tid], running);
+			auto previous = running;
+			running = ready.front();
+			while (running->getState() == Thread::TERMINATED || running->getState() == Thread::BLOCKED)
+			{
+				ready.pop_front();
+				running = ready.front();
+			}
+			dispatcher.switchToThread(previous, running);
         }
         return 0;
     }
@@ -289,22 +296,26 @@ public:
 			std::cerr << "thread library error: Cannot block thread with id " << tid << ".\n";
             return -1;
         }
-        if (tid != running->getId())
+		threads[tid]->setState(Thread::BLOCKED);
+		if (tid != running->getId())
         {
             for (auto it = ready.begin(); it != ready.end(); it++ )
             {
                 if (it->get()->getId() == tid)
                 {
                     ready.erase(it);
-                    threads[tid]->setState(Thread::BLOCKED);
                     break;
                 }
             }
         }
         else
         {
-            running = ready.front();
-            threads[tid]->setState(Thread::BLOCKED);
+			running = ready.front();
+			while (running->getState() == Thread::TERMINATED || running->getState() == Thread::BLOCKED)
+			{
+				ready.pop_front();
+				running = ready.front();
+			}
             dispatcher.switchToThread(threads[tid], running);
         }
         return 0;
