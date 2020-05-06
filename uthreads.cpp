@@ -10,6 +10,7 @@
 #include <setjmp.h>
 #include <signal.h>
 #include <sys/time.h>
+#include <iostream>
 
 typedef void (*EntryPoint_t)(void);
 
@@ -120,7 +121,7 @@ private:
 class Dispatcher
 {
 public:
-    Dispatcher() : totalQuantums(0){}
+    Dispatcher() : totalQuantums(1){}
 
     void switchToThread(const std::shared_ptr<Thread>& currentThread,
                         const std::shared_ptr<Thread>& targetThread)
@@ -159,12 +160,22 @@ public:
         sa.sa_handler = &Scheduler::timerHandler;
         if (sigaction(SIGVTALRM, &sa, NULL) < 0)
         {
-            printf("sigaction error.");//TODO
+            std::cerr << "system error: sigaction failure.\n";
+            exit(1);
         }
-        auto mainThread = std::make_shared<Thread>(0, quantums[0], 0, nullptr, true);
-        running = mainThread;
-        threads[0] = mainThread;
-        setTimer(0);
+        try
+		{
+			auto mainThread = std::make_shared<Thread>(0, quantums[0], 0, nullptr, true);
+			running = mainThread;
+			threads[0] = mainThread;
+			setTimer(0);
+		}
+        catch (std::bad_alloc& e)
+		{
+			std::cerr << "system error: Memory allocation failure.\n";
+			exit(1);
+		}
+
 
     }
 
@@ -173,10 +184,11 @@ public:
         timer.it_value.tv_usec = quantums[priority];
         if (setitimer(ITIMER_VIRTUAL, &timer, NULL))
         {
-            printf("setitimer error.");//TODO
+			std::cerr << "system error: setitimer failure.\n";
+			exit(1);
         }
-        std::cerr << "priority: " << priority << " quantums priority: " << quantums[priority]
-                  << '\n';
+//        std::cerr << "priority: " << priority << " quantums priority: " << quantums[priority]
+//                  << '\n';
     }
 
     int addThread(EntryPoint_t entryPoint, int priority)
@@ -184,6 +196,7 @@ public:
         int size = threads.size();
         if (size == MAX_THREAD_NUM || !quantums.count(priority))
         {
+			std::cerr << "thread library error: Cannot create new thread with priority " << priority << ".\n";
             return -1;
         }
         try
@@ -191,11 +204,12 @@ public:
             threads[size] = std::make_shared<Thread>(size, quantums[priority], priority, entryPoint);
         }catch (std::bad_alloc &e)
         {
-            return -1;
+			std::cerr << "system error: Memory allocation failure.\n";
+			exit(1);
         }
 
         ready.push_back(std::shared_ptr<Thread>(threads[size]));
-        return 0;
+        return size;
     }
 
     static void timerHandler(int sig)
@@ -205,7 +219,7 @@ public:
             return;
         }
         auto runningId = me->running->getId();
-        std::cerr << "\n------------ SIGNAL SIGVALRM --------------" << std::endl;
+//        std::cerr << "\n------------ SIGNAL SIGVALRM --------------" << std::endl;
         if (runningId != me->ready.front()->getId())
         {
             me->ready.push_back(me->running);
@@ -215,7 +229,6 @@ public:
         me->ready.pop_front();
         while (me->running->getState() == Thread::TERMINATED)
         {
-            me->threads.erase(runningId);
             me->running = me->ready.front();
             me->ready.pop_front();
         }
@@ -228,7 +241,8 @@ public:
     {
         if (!threads.count(tid) || !quantums.count(priority))
         {
-            return -1;
+			std::cerr << "thread library error: Cannot change priority of thread with id " << tid << " to " << priority << ".\n";
+			return -1;
         }
         threads[tid]->setPriority(priority);
         return 0;
@@ -238,15 +252,19 @@ public:
     {
         if (!threads.count(tid))
         {
-            return -1;
+			std::cerr << "thread library error: Cannot thread thread with id " << tid << ": No such thread.\n";
+			return -1;
         }
         threads[tid]->setState(Thread::TERMINATED);
+		ready.push_back(threads[tid]);
+		threads.erase(tid);
         if (tid==0)
         {
             clearAndExit();
         }
         if (running->getId() == tid)
         {
+
             running = ready.front();
             dispatcher.switchToThread(threads[tid], running);
         }
@@ -264,6 +282,7 @@ public:
     {
         if (tid == 0 || !threads.count(tid))
         {
+			std::cerr << "thread library error: Cannot block thread with id " << tid << ".\n";
             return -1;
         }
         if (tid != running->getId())
@@ -292,7 +311,8 @@ public:
     {
         if (!threads.count(tid))
         {
-            return -1;
+			std::cerr << "thread library error: Cannot resume thread with id " << tid << ": No such thread.\n";
+			return -1;
         }
         if (threads[tid]->getState() == Thread::BLOCKED)
         {
@@ -313,7 +333,8 @@ public:
     {
         if (!threads.count(tid))
         {
-            return -1;
+			std::cerr << "thread library error: Cannot get quantum of thread with id " << tid << ": No such thread.\n";
+			return -1;
         }
         return threads[tid]->getTotalQuantum();
     }
@@ -335,11 +356,17 @@ std::shared_ptr<Scheduler> scheduler;
 
 int uthread_init(int *quantum_usecs, int size)
 {
+	if (size == 0)
+	{
+		std::cerr << "thread library error: Cannot initialize library with no quantum values.\n";
+		return -1;
+	}
     std::map<int, int> quantums;
     for (int i = 0; i < size; ++i)
     {
         if (quantum_usecs[i] < 0)
         {
+			std::cerr << "thread library error: Cannot initialize library with negative quantum.\n";
             return -1;
         }
         quantums[i] = quantum_usecs[i];
@@ -358,6 +385,7 @@ int uthread_spawn(void (*f)(void), int priority)
 {
     if (priority < 0)
     {
+		std::cerr << "thread library error: Cannot spawn thread with negative priority.\n";
         return -1;
     }
     sigprocmask(SIG_BLOCK, &maskSignals, NULL);
