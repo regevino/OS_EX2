@@ -224,6 +224,7 @@ public:
         {
             me->ready.push_back(me->running);
         }
+
         std::shared_ptr<Thread> prev = me->running;
         me->running = std::shared_ptr<Thread>(me->ready.front());
         me->ready.pop_front();
@@ -233,7 +234,10 @@ public:
             me->ready.pop_front();
         }
         me->setTimer(me->running->getPriority());
-        me->dispatcher.switchToThread(prev, me->running);
+        if (prev->getId() != me->running->getId())
+		{
+			me->dispatcher.switchToThread(prev, me->running);
+		}
 
     }
 
@@ -316,7 +320,7 @@ public:
         }
         if (threads[tid]->getState() == Thread::BLOCKED)
         {
-            ready.push_back(threads[tid]);
+			ready.push_back(threads[tid]);
             threads[tid]->setState(Thread::READY);
         }
         return 0;
@@ -356,7 +360,7 @@ std::shared_ptr<Scheduler> scheduler;
 
 int uthread_init(int *quantum_usecs, int size)
 {
-	if (size == 0)
+	if (size <= 0)
 	{
 		std::cerr << "thread library error: Cannot initialize library with no quantum values.\n";
 		return -1;
@@ -409,12 +413,18 @@ int uthread_terminate(int tid)
 
 int uthread_block(int tid)
 {
-    return scheduler->block(tid);
+	sigprocmask(SIG_BLOCK, &maskSignals, NULL);
+	int result = scheduler->block(tid);
+	sigprocmask(SIG_UNBLOCK, &maskSignals, NULL);
+	return result;
 }
 
 int uthread_resume(int tid)
 {
-    return scheduler->resume(tid);
+	sigprocmask(SIG_BLOCK, &maskSignals, NULL);
+	int result = scheduler->resume(tid);
+	sigprocmask(SIG_UNBLOCK, &maskSignals, NULL);
+	return result;
 }
 
 int uthread_get_tid()
