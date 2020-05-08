@@ -205,6 +205,7 @@ public:
                 if (it->get()->getId() == j)
                 {
                     ready.erase(it);
+                    it = ready.begin();
                 }
             }
             threads[j] = std::make_shared<Thread>(j, quantums[priority], priority, entryPoint);
