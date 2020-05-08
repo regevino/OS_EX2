@@ -476,7 +476,7 @@ int uthread_init(int *quantum_usecs, int size)
 
 sigset_t maskSignals;
 int res = sigemptyset(&maskSignals);
-int x = sigaddset(&maskSignals, SIGALRM);
+int x = sigaddset(&maskSignals, SIGVTALRM);
 
 int uthread_spawn(void (*f)(void), int priority)
 {
