@@ -200,6 +200,13 @@ public:
                     break;
                 }
             }
+            for (auto it = ready.begin(); it != ready.end(); it++ )
+            {
+                if (it->get()->getId() == j)
+                {
+                    ready.erase(it);
+                }
+            }
             threads[j] = std::make_shared<Thread>(j, quantums[priority], priority, entryPoint);
             ++numOfThreads;
             ready.push_back(std::shared_ptr<Thread>(threads[j]));
@@ -264,8 +271,7 @@ public:
 			return -1;
         }
         threads[tid]->setState(Thread::TERMINATED);
-		ready.push_back(threads[tid]);
-		threads[tid].reset();
+
 		--numOfThreads;
 
         if (tid==0)
@@ -274,7 +280,7 @@ public:
         }
         if (running->getId() == tid)
         {
-
+            ready.push_back(threads[tid]);
 			auto previous = running;
 			running = ready.front();
 			while (running->getState() == Thread::TERMINATED || running->getState() == Thread::BLOCKED)
@@ -289,8 +295,10 @@ public:
                     running = ready.front();
                 }
 			}
-			dispatcher.switchToThread(previous, running);
+            threads[tid].reset();
+            dispatcher.switchToThread(previous, running);
         }
+        threads[tid].reset();
         return 0;
     }
     void clearAndExit()
@@ -355,8 +363,14 @@ public:
         {
 			ready.push_back(threads[tid]);
             threads[tid]->setState(Thread::READY);
+            std::cerr << '\n';
+            for (const auto& it:ready)
+            {
+                std::cerr << "TID: " << it->getId() << ", NUMOFTHREADS: " << numOfThreads
+                << ", STATE: " << it->getState() <<
+                '\n';
+            }
         }
-        std::cerr << "TID: " << tid << ", NUMOFTHREADS: " << numOfThreads << '\n';
         return 0;
     }
 
