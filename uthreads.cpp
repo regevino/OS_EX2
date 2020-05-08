@@ -70,7 +70,7 @@ public:
 
     Thread(int id, int quantum, int priority, EntryPoint_t entry, bool mainThread = false)
             : id(id), quantum(quantum), totalQuantum(mainThread), priority(priority), state(READY),
-            entry(entry), stack(nullptr)
+            stack(nullptr)
     {
         sigsetjmp(environment, 1);
         if (!mainThread)
@@ -87,34 +87,26 @@ public:
     sigjmp_buf &getEnvironment(){return environment;}
     int getId() const{return id;}
     int getPriority() const{return priority;}
-    void setPriority(int priority){ this->priority = priority;}
+    void setPriority(int _priority){ this->priority = _priority;}
     states getState() const{return state;}
-    void setState(states state){Thread::state = state;}
+    void setState(states _state){ Thread::state = _state;}
     void incrementTotalQuantum(){++totalQuantum;}
-private:
-    int id;
-    int quantum;
-    int totalQuantum;
-public:
+    std::unique_ptr<char[]> &getStack()
+    {
+        return stack;
+    }
     int getTotalQuantum() const
     {
         return totalQuantum;
     }
-
 private:
+    int id;
+    int quantum;
+    int totalQuantum;
     int priority;
     states state;
     sigjmp_buf environment;
     std::unique_ptr<char[]> stack;
-public:
-    std::unique_ptr<char[]> &getStack()
-    {
-
-        return stack;
-    }
-
-private:
-    EntryPoint_t entry;
 };
 
 
@@ -150,8 +142,7 @@ class Scheduler
 {
     static Scheduler *me;
 public:
-    explicit Scheduler(std::map<int, int> quantums)
-            : quantums(std::move(quantums))
+    explicit Scheduler(std::map<int, int> quantums) : numOfThreads(1), quantums(std::move(quantums))
     {
         me = this;
         timer.it_interval.tv_sec = 0;
@@ -193,23 +184,32 @@ public:
 
     int addThread(EntryPoint_t entryPoint, int priority)
     {
-        int size = threads.size();
-        if (size == MAX_THREAD_NUM || !quantums.count(priority))
+        if (numOfThreads == MAX_THREAD_NUM || !quantums.count(priority))
         {
 			std::cerr << "thread library error: Cannot create new thread with priority " << priority << ".\n";
             return -1;
         }
         try
         {
-            threads[size] = std::make_shared<Thread>(size, quantums[priority], priority, entryPoint);
+            int j = 1;
+            for (int i = 0; i < MAX_THREAD_NUM; ++i)
+            {
+                if (threads[i] == nullptr)
+                {
+                    j = i;
+                    break;
+                }
+            }
+            threads[j] = std::make_shared<Thread>(j, quantums[priority], priority, entryPoint);
+            ++numOfThreads;
+            ready.push_back(std::shared_ptr<Thread>(threads[j]));
+            return j;
         }catch (std::bad_alloc &e)
         {
-			std::cerr << "system error: Memory allocation failure.\n";
-			exit(1);
+            std::cerr << "system error: Memory allocation failure.\n";
+            exit(1);
         }
 
-        ready.push_back(std::shared_ptr<Thread>(threads[size]));
-        return size;
     }
 
     static void timerHandler(int sig)
@@ -243,7 +243,7 @@ public:
 
     int changePriority(int tid, int priority)
     {
-        if (!threads.count(tid) || !quantums.count(priority))
+        if (threads[tid] == nullptr || !quantums.count(priority))
         {
 			std::cerr << "thread library error: Cannot change priority of thread with id " << tid << " to " << priority << ".\n";
 			return -1;
@@ -254,14 +254,15 @@ public:
 
     int terminate(int tid)
     {
-        if (!threads.count(tid))
+        if (threads[tid] == nullptr)
         {
 			std::cerr << "thread library error: Cannot thread thread with id " << tid << ": No such thread.\n";
 			return -1;
         }
         threads[tid]->setState(Thread::TERMINATED);
 		ready.push_back(threads[tid]);
-		threads.erase(tid);
+		threads[tid].reset();
+		--numOfThreads;
 
         if (tid==0)
         {
@@ -285,13 +286,16 @@ public:
     {
         running.reset();
         ready.clear();
-        threads.clear();
+        for (int i = 0; i < MAX_THREAD_NUM; ++i)
+        {
+            threads[i].reset();
+        }
         exit(0);
     }
 
     int block(int tid)
     {
-        if (tid == 0 || !threads.count(tid))
+        if (tid == 0 || threads[tid] == nullptr)
         {
 			std::cerr << "thread library error: Cannot block thread with id " << tid << ".\n";
             return -1;
@@ -324,7 +328,7 @@ public:
 
     int resume(int tid)
     {
-        if (!threads.count(tid))
+        if (threads[tid] == nullptr)
         {
 			std::cerr << "thread library error: Cannot resume thread with id " << tid << ": No such thread.\n";
 			return -1;
@@ -346,7 +350,7 @@ public:
 
     int getThreadsQuantums(int tid)
     {
-        if (!threads.count(tid))
+        if (threads[tid] == nullptr)
         {
 			std::cerr << "thread library error: Cannot get quantum of thread with id " << tid << ": No such thread.\n";
 			return -1;
@@ -355,7 +359,9 @@ public:
     }
 
 private:
-    std::map<int, std::shared_ptr<Thread>> threads;
+//    std::map<int, std::shared_ptr<Thread>> threads;
+    std::shared_ptr<Thread> threads[MAX_THREAD_NUM];
+    size_t numOfThreads;
     std::map<int, int> quantums;
     std::shared_ptr<Thread> running;
     std::deque<std::shared_ptr<Thread>> ready;
