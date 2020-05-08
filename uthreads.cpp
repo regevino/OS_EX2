@@ -238,14 +238,6 @@ public:
             {
                 return ptr->getId() == j;
             }), ready.end());
-//            for (auto it = ready.begin(); it != ready.end(); it++)
-//            {
-//                if (it->get()->getId() == j)
-//                {
-//                    ready.erase(it);
-//                    it = ready.begin();
-//                }
-//            }
             threads[j] = std::make_shared<Thread>(j, quantums[priority], priority, entryPoint);
             ++numOfThreads;
             ready.push_back(std::shared_ptr<Thread>(threads[j]));
@@ -281,7 +273,7 @@ public:
             {
                 return;
             }
-            me->running = me->ready.front();
+            me->running = std::shared_ptr<Thread>(me->ready.front());
             me->ready.pop_front();
         }
         me->setTimer(me->running->getPriority());
@@ -324,7 +316,7 @@ public:
         {
             ready.push_back(std::shared_ptr<Thread>(threads[tid]));
             auto previous = running;
-            running = ready.front();
+            running = std::shared_ptr<Thread>(ready.front());
             while (running->getState() == Thread::TERMINATED ||
                    running->getState() == Thread::BLOCKED)
             {
@@ -335,7 +327,7 @@ public:
                 }
                 else
                 {
-                    running = ready.front();
+                    running = std::shared_ptr<Thread>(ready.front());
                 }
             }
             threads[tid].reset();
@@ -377,7 +369,7 @@ public:
         }
         else
         {
-            running = ready.front();
+            running = std::shared_ptr<Thread>(ready.front());
             while (running->getState() == Thread::TERMINATED ||
                    running->getState() == Thread::BLOCKED)
             {
@@ -388,7 +380,7 @@ public:
                 }
                 else
                 {
-                    running = ready.front();
+                    running = std::shared_ptr<Thread>(ready.front());
                 }
             }
             dispatcher.switchToThread(threads[tid], running);
@@ -409,7 +401,6 @@ public:
         {
             ready.push_back(std::shared_ptr<Thread>(threads[tid]));
             threads[tid]->setState(Thread::READY);
-            std::cerr << '\n';
 //            for (const auto &it:ready)
 //            {
 //                std::cerr << "TID: " << it->getId() << ", NUMOFTHREADS: " << numOfThreads
