@@ -230,6 +230,10 @@ public:
         me->ready.pop_front();
         while (me->running->getState() == Thread::TERMINATED || me->running->getState() == Thread::BLOCKED)
         {
+            if (me->ready.empty())
+            {
+                return;
+            }
             me->running = me->ready.front();
             me->ready.pop_front();
         }
@@ -338,6 +342,7 @@ public:
 			ready.push_back(threads[tid]);
             threads[tid]->setState(Thread::READY);
         }
+        std::cerr << "TID: " << tid << ", NUMOFTHREADS: " << numOfThreads << '\n';
         return 0;
     }
 
@@ -377,6 +382,7 @@ std::shared_ptr<Scheduler> scheduler;
 
 int uthread_init(int *quantum_usecs, int size)
 {
+    std::cerr << "ENTERED INIT\n";
 	if (size <= 0)
 	{
 		std::cerr << "thread library error: Cannot initialize library with no quantum values.\n";
@@ -393,7 +399,7 @@ int uthread_init(int *quantum_usecs, int size)
         quantums[i] = quantum_usecs[i];
     }
     scheduler = std::make_shared<Scheduler>(quantums);
-
+    std::cerr << "EXITING INIT\n";
     return 0;
 }
 
@@ -404,6 +410,7 @@ int x = sigaddset(&maskSignals, SIGALRM);
 
 int uthread_spawn(void (*f)(void), int priority)
 {
+    std::cerr << "ENTERED SPAWN\n";
     if (priority < 0)
     {
 		std::cerr << "thread library error: Cannot spawn thread with negative priority.\n";
@@ -412,19 +419,23 @@ int uthread_spawn(void (*f)(void), int priority)
     sigprocmask(SIG_BLOCK, &maskSignals, NULL);
     int result = scheduler->addThread(f, priority);
     sigprocmask(SIG_UNBLOCK, &maskSignals, NULL);
+    std::cerr << "EXITING SPAWN\n";
     return result;
 }
 
 int uthread_change_priority(int tid, int priority)
 {
+    std::cerr << "ENTERED CHANGE PRIORITY\n";
     return scheduler->changePriority(tid, priority);
 }
 
 int uthread_terminate(int tid)
 {
+    std::cerr << "ENTERED TERMINATE\n";
     sigprocmask(SIG_BLOCK, &maskSignals, NULL);
     int result = scheduler->terminate(tid);
     sigprocmask(SIG_UNBLOCK, &maskSignals, NULL);
+    std::cerr << "EXITING TERMINATE\n";
     return result;
 }
 
@@ -438,9 +449,11 @@ int uthread_block(int tid)
 
 int uthread_resume(int tid)
 {
+    std::cerr << "ENTERED RESUME\n";
 	sigprocmask(SIG_BLOCK, &maskSignals, NULL);
 	int result = scheduler->resume(tid);
 	sigprocmask(SIG_UNBLOCK, &maskSignals, NULL);
+    std::cerr << "EXITING RESUME\n";
 	return result;
 }
 
