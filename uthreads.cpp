@@ -268,7 +268,7 @@ public:
 //        std::cerr << "\n------------ SIGNAL SIGVALRM --------------" << std::endl;
         if (runningId != me->ready.front()->getId())
         {
-            me->ready.push_back(me->running);
+            me->ready.push_back(std::shared_ptr<Thread>(me->running));
         }
 
         std::shared_ptr<Thread> prev = me->running;
@@ -322,7 +322,7 @@ public:
         }
         if (running->getId() == tid)
         {
-            ready.push_back(threads[tid]);
+            ready.push_back(std::shared_ptr<Thread>(threads[tid]));
             auto previous = running;
             running = ready.front();
             while (running->getState() == Thread::TERMINATED ||
@@ -407,15 +407,15 @@ public:
         }
         if (threads[tid]->getState() == Thread::BLOCKED)
         {
-            ready.push_back(threads[tid]);
+            ready.push_back(std::shared_ptr<Thread>(threads[tid]));
             threads[tid]->setState(Thread::READY);
             std::cerr << '\n';
-            for (const auto &it:ready)
-            {
-                std::cerr << "TID: " << it->getId() << ", NUMOFTHREADS: " << numOfThreads
-                          << ", STATE: " << it->getState() <<
-                          '\n';
-            }
+//            for (const auto &it:ready)
+//            {
+//                std::cerr << "TID: " << it->getId() << ", NUMOFTHREADS: " << numOfThreads
+//                          << ", STATE: " << it->getState() <<
+//                          '\n';
+//            }
         }
         return 0;
     }
