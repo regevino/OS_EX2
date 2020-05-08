@@ -280,7 +280,14 @@ public:
 			while (running->getState() == Thread::TERMINATED || running->getState() == Thread::BLOCKED)
 			{
 				ready.pop_front();
-				running = ready.front();
+                if (ready.empty())
+                {
+                    running = threads[0];
+                }
+                else
+                {
+                    running = ready.front();
+                }
 			}
 			dispatcher.switchToThread(previous, running);
         }
@@ -322,7 +329,14 @@ public:
 			while (running->getState() == Thread::TERMINATED || running->getState() == Thread::BLOCKED)
 			{
 				ready.pop_front();
-				running = ready.front();
+                if (ready.empty())
+                {
+                    running = threads[0];
+                }
+                else
+                {
+                    running = ready.front();
+                }
 			}
             dispatcher.switchToThread(threads[tid], running);
         }
