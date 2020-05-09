@@ -6,7 +6,6 @@
 
 
 
-
 static std::shared_ptr<Scheduler> scheduler;
 static sigset_t maskSignals;
 

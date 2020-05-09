@@ -38,13 +38,13 @@
 
 
 
-/**
+/*
  * Class representing a user thread.
  */
 class Thread
 {
 public:
-	/**
+	/*
 	 * enum representing states the thread can be in (READY includes RUNNING).
 	 */
 	enum states
@@ -54,7 +54,7 @@ public:
 		TERMINATED
 	};
 
-	/**
+	/*
 	 * Pointer to a void function that is an entry point to a thread.
 	 */
 	typedef void (*EntryPoint_t)();
@@ -121,7 +121,7 @@ private:
 	std::unique_ptr<char[]> stack;
 };
 
-/**
+/*
  * A dispatcher object responsible for preforming context-switches between threads.
  */
 class Dispatcher
@@ -148,13 +148,13 @@ private:
 	int totalQuantums;
 };
 
-/**
+/*
  * Singleton Scheduler object responsible for implementing the uthread library functionality.
  * Only one instance of this object can be used at once.
  */
 class Scheduler
 {
-	/**
+	/*
 	 * Pointer to the singleton instance scheduler.
 	 */
 	static Scheduler *me;
