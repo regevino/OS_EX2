@@ -12,6 +12,17 @@
 #define MAIN_THREAD_PRIORITY 0
 #define INITIAL_QUANTUMS 1
 #define INITIAL_NUM_OF_THREADS 1
+#define SIGEMPTYSET_FAILURE_MSG "system error: sigemptyset failure.\n"
+#define SIGACTION_FAILURE_MSG "system error: sigaction failure.\n"
+#define MEMORY_ALLOC_FAILURE_MSG "system error: Memory allocation failure.\n"
+#define SETITIMER_FAILURE_MSG "system error: setitimer failure.\n"
+#define BLOCK_ERR_MSG "thread library error: Cannot block thread with id "
+#define RESUME_ERR_MSG "thread library error: Cannot resume thread with id "
+#define NON_EXISTENT_THREAD_MSG ": No such thread.\n"
+#define QUANTUM_ERR_MSG "thread library error: Cannot get quantum of thread with id "
+#define TERMINATION_ERR_MSG "thread library error: Cannot terminate thread with id "
+#define CHANGE_PRIORITY_ERR_MSG "thread library error: Cannot change priority of thread with id "
+#define ADD_THREAD_ERR_MSG "thread library error: Cannot create new thread with priority "
 
 #ifdef __x86_64__
 /* code for 64 bit Intel arch */
@@ -67,7 +78,7 @@ Thread::Thread(int id, int priority, EntryPoint_t entry, bool mainThread)
         (environment->__jmpbuf)[JB_PC] = translate_address(pc);
         if (sigemptyset(&environment->__saved_mask))
         {
-            std::cerr << "system error: sigemptyset failure.\n";
+            std::cerr << SIGEMPTYSET_FAILURE_MSG;
             exit(EXIT_FAILURE);
         }
     }
@@ -159,7 +170,7 @@ Scheduler::Scheduler(const std::map<int, int> &pQuantums) : numOfThreads(INITIAL
     sa.sa_handler = &Scheduler::timerHandler;
     if (sigaction(SIGVTALRM, &sa, nullptr) < 0)
     {
-        std::cerr << "system error: sigaction failure.\n";
+        std::cerr << SIGACTION_FAILURE_MSG;
         exit(EXIT_FAILURE);
     }
     try
@@ -172,7 +183,7 @@ Scheduler::Scheduler(const std::map<int, int> &pQuantums) : numOfThreads(INITIAL
     }
     catch (std::bad_alloc &e)
     {
-        std::cerr << "system error: Memory allocation failure.\n";
+        std::cerr << MEMORY_ALLOC_FAILURE_MSG;
         exit(EXIT_FAILURE);
     }
 }
@@ -181,7 +192,7 @@ void Scheduler::setTimer(int priority)
 {
     if (setitimer(ITIMER_VIRTUAL, &quantums[priority], nullptr))
     {
-        std::cerr << "system error: setitimer failure.\n";
+        std::cerr << SETITIMER_FAILURE_MSG;
         exit(EXIT_FAILURE);
     }
 }
@@ -190,8 +201,7 @@ int Scheduler::addThread(Thread::EntryPoint_t entryPoint, int priority)
 {
     if (numOfThreads == MAX_THREAD_NUM || !quantums.count(priority))
     {
-        std::cerr << "thread library error: Cannot create new thread with priority " << priority
-                  << ".\n";
+        std::cerr << ADD_THREAD_ERR_MSG << priority << '\n';
         return FAILURE;
     }
     try
@@ -216,7 +226,7 @@ int Scheduler::addThread(Thread::EntryPoint_t entryPoint, int priority)
         return j;
     } catch (std::bad_alloc &e)
     {
-        std::cerr << "system error: Memory allocation failure.\n";
+        std::cerr << MEMORY_ALLOC_FAILURE_MSG;
         exit(EXIT_FAILURE);
     }
 }
@@ -257,8 +267,7 @@ int Scheduler::changePriority(int tid, int priority)
 {
     if (threads[tid] == nullptr || !quantums.count(priority))
     {
-        std::cerr << "thread library error: Cannot change priority of thread with id " << tid
-                  << " to " << priority << ".\n";
+        std::cerr << CHANGE_PRIORITY_ERR_MSG << tid << " to " << priority << ".\n";
         return FAILURE;
     }
     threads[tid]->setPriority(priority);
@@ -269,8 +278,7 @@ int Scheduler::terminate(int tid)
 {
     if (threads[tid] == nullptr)
     {
-        std::cerr << "thread library error: Cannot thread thread with id " << tid
-                  << ": No such thread.\n";
+        std::cerr << TERMINATION_ERR_MSG << tid << NON_EXISTENT_THREAD_MSG;
         return FAILURE;
     }
     threads[tid]->setState(Thread::TERMINATED);
@@ -317,7 +325,7 @@ void Scheduler::clearAndExit()
     sa.sa_handler = SIG_IGN;
     if (sigaction(SIGVTALRM, &sa, nullptr) < 0)
     {
-        std::cerr << "system error: sigaction failure.\n";
+        std::cerr << SIGACTION_FAILURE_MSG;
         exit(EXIT_FAILURE);
     }
     exit(EXIT_SUCCESS);
@@ -327,7 +335,7 @@ int Scheduler::block(int tid)
 {
     if (tid == MAIN_THREAD_ID || threads[tid] == nullptr)
     {
-        std::cerr << "thread library error: Cannot block thread with id " << tid << ".\n";
+        std::cerr << BLOCK_ERR_MSG << tid << '\n';
         return FAILURE;
     }
     threads[tid]->setState(Thread::BLOCKED);
@@ -367,8 +375,7 @@ int Scheduler::resume(int tid)
 {
     if (threads[tid] == nullptr)
     {
-        std::cerr << "thread library error: Cannot resume thread with id " << tid
-                  << ": No such thread.\n";
+        std::cerr << RESUME_ERR_MSG << tid << NON_EXISTENT_THREAD_MSG;
         return FAILURE;
     }
     if (threads[tid]->getState() == Thread::BLOCKED)
@@ -393,8 +400,7 @@ int Scheduler::getThreadsQuantums(int tid)
 {
     if (threads[tid] == nullptr)
     {
-        std::cerr << "thread library error: Cannot get quantum of thread with id " << tid
-                  << ": No such thread.\n";
+        std::cerr << QUANTUM_ERR_MSG << tid << NON_EXISTENT_THREAD_MSG;
         return FAILURE;
     }
     return threads[tid]->getTotalQuantum();
