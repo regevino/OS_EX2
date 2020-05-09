@@ -17,9 +17,13 @@ int uthread_init(int *quantum_usecs, int size)
         std::cerr << TLERROR_INIT_NO_QUANTUMS;
         return -1;
     }
-	sigemptyset(&maskSignals);
+
+	// Create the signal mask we will use to mask SIGVTALRM:
+    sigemptyset(&maskSignals);
 	sigaddset(&maskSignals, SIGVTALRM);
-    std::map<int, int> quantums;
+
+	// Create a mao of quantums and priorities:
+	std::map<int, int> quantums;
     for (int i = 0; i < size; ++i)
     {
         if (quantum_usecs[i] < 0)
@@ -29,6 +33,8 @@ int uthread_init(int *quantum_usecs, int size)
         }
         quantums[i] = quantum_usecs[i];
     }
+
+    // Initialise the scheduler:
     scheduler = std::make_shared<Scheduler>(quantums);
     return 0;
 }
@@ -45,8 +51,11 @@ int uthread_spawn(void (*f)(), int priority)
 		std::cerr << SYS_ERROR_SIGPROCMASK;
 		exit(EXIT_FAILURE);
 	}
+
+    // Add the thread:
     int result = scheduler->addThread(f, priority);
-	if(sigprocmask(SIG_UNBLOCK, &maskSignals, nullptr))
+
+    if(sigprocmask(SIG_UNBLOCK, &maskSignals, nullptr))
 	{
 		std::cerr << SYS_ERROR_SIGPROCMASK;
 		exit(EXIT_FAILURE);
@@ -60,7 +69,12 @@ int uthread_change_priority(int tid, int priority)
 	{
 		std::cerr << SYS_ERROR_SIGPROCMASK;
 		exit(1);
-	}	int result = scheduler->changePriority(tid, priority);
+
+	}
+
+	// Change the priority:
+	int result = scheduler->changePriority(tid, priority);
+
 	if(sigprocmask(SIG_UNBLOCK, &maskSignals, nullptr))
 	{
 		std::cerr << SYS_ERROR_SIGPROCMASK;
@@ -75,7 +89,11 @@ int uthread_terminate(int tid)
 	{
 		std::cerr << SYS_ERROR_SIGPROCMASK;
 		exit(EXIT_FAILURE);
-	}    int result = scheduler->terminate(tid);
+	}
+
+	// Terminate the thread:
+	int result = scheduler->terminate(tid);
+
 	if(sigprocmask(SIG_UNBLOCK, &maskSignals, nullptr))
 	{
 		std::cerr << SYS_ERROR_SIGPROCMASK;
@@ -90,7 +108,11 @@ int uthread_block(int tid)
 	{
 		std::cerr << SYS_ERROR_SIGPROCMASK;
 		exit(EXIT_FAILURE);
-	}    int result = scheduler->block(tid);
+	}
+
+	// Block the thread:
+	int result = scheduler->block(tid);
+
 	if(sigprocmask(SIG_UNBLOCK, &maskSignals, nullptr))
 	{
 		std::cerr << SYS_ERROR_SIGPROCMASK;
@@ -105,7 +127,11 @@ int uthread_resume(int tid)
 	{
 		std::cerr << SYS_ERROR_SIGPROCMASK;
 		exit(EXIT_FAILURE);
-	}    int result = scheduler->resume(tid);
+	}
+
+	// Resume the thread:
+	int result = scheduler->resume(tid);
+
 	if(sigprocmask(SIG_UNBLOCK, &maskSignals, nullptr))
 	{
 		std::cerr << SYS_ERROR_SIGPROCMASK;

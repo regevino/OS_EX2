@@ -61,6 +61,7 @@ Thread::Thread(int id, int priority, EntryPoint_t entry, bool mainThread)
     sigsetjmp(environment, 1);
     if (!mainThread)
     {
+    	// Creating a new thread, set environment and allcoate a stack.
         stack = std::unique_ptr<char[]>(new char[STACK_SIZE]);
         address_t sp = (address_t) stack.get() + STACK_SIZE - sizeof(address_t);
         auto pc = (address_t) entry;
@@ -121,15 +122,21 @@ Dispatcher::Dispatcher() : totalQuantums(INITIAL_QUANTUMS)
 void Dispatcher::switchToThread(std::shared_ptr<Thread> &&currentThread,
                                 const std::shared_ptr<Thread> &targetThread)
 {
+	// Increment the quantum count:
     ++totalQuantums;
     targetThread->incrementTotalQuantum();
+
+    // Save current state
     int ret_val = sigsetjmp(currentThread->getEnvironment(), 1);
-    currentThread.reset();
     if (ret_val == 1)
     {
-        return;
-    }
-    siglongjmp(targetThread->getEnvironment(), 1);
+		return;
+	}
+    // Before jumping, release the pointer for the old thread.
+	currentThread.reset();
+
+    // Preform context switch.
+	siglongjmp(targetThread->getEnvironment(), 1);
 }
 
 int Dispatcher::getTotalQuantums() const
@@ -141,10 +148,16 @@ Scheduler::Scheduler(const std::map<int, int> &pQuantums) : numOfThreads(INITIAL
 {
 	if (me != nullptr)
 	{
+		// Scheduler has already been instantiated once, so throw exception.
 		throw SchedulerException();
 	}
+
+	// Keep a pointer to this instance.
     me = this;
-    for (const auto &quant: pQuantums)
+
+
+	// Set timers for all possible quantums:
+	for (const auto &quant: pQuantums)
     {
         itimerval timer{};
         timer.it_interval.tv_sec = 0;
@@ -153,6 +166,7 @@ Scheduler::Scheduler(const std::map<int, int> &pQuantums) : numOfThreads(INITIAL
         __time_t seconds = 0;
         while (usecs > MAX_MILISECONDS)
         {
+        	// Number of milliseconds is longer than a second.
             ++seconds;
             usecs -= MAX_MILISECONDS;
         }
@@ -161,12 +175,15 @@ Scheduler::Scheduler(const std::map<int, int> &pQuantums) : numOfThreads(INITIAL
         quantums[quant.first] = timer;
     }
 
+	// Set the sigaction handler for the timer:
     sa.sa_handler = &Scheduler::timerHandler;
     if (sigaction(SIGVTALRM, &sa, nullptr) < 0)
     {
         std::cerr << SYS_ERROR_SIGACTION;
         exit(EXIT_FAILURE);
     }
+
+    // Create the main thread as thread with ID 0:
     try
     {
         auto mainThread = std::make_shared<Thread>(MAIN_THREAD_ID, MAIN_THREAD_PRIORITY, nullptr,
@@ -184,6 +201,7 @@ Scheduler::Scheduler(const std::map<int, int> &pQuantums) : numOfThreads(INITIAL
 
 void Scheduler::setTimer(int priority)
 {
+	// Set the timer for a quantum corresponding to priority.
     if (setitimer(ITIMER_VIRTUAL, &quantums[priority], nullptr))
     {
         std::cerr << SYS_ERROR_SETITIMER;
@@ -193,31 +211,37 @@ void Scheduler::setTimer(int priority)
 
 int Scheduler::addThread(Thread::EntryPoint_t entryPoint, int priority)
 {
+	// If there are already MAX_THREAD_NUM threads, return a failure.
     if (numOfThreads == MAX_THREAD_NUM || !quantums.count(priority))
     {
         std::cerr << ADD_THREAD_ERR_MSG << priority << '\n';
         return FAILURE;
     }
+
     try
     {
-        int j = 1;
+    	// Find the lowest free ID:
+        int lowest_id = 1;
         for (int i = 0; i < MAX_THREAD_NUM; ++i)
         {
             if (threads[i] == nullptr)
             {
-                j = i;
+				lowest_id = i;
                 break;
             }
         }
+        // Make sure there aren't any pointers to threads with this ID in the ready queue:
         ready.erase(
-                std::remove_if(ready.begin(), ready.end(), [j](const std::shared_ptr<Thread> &ptr)
+                std::remove_if(ready.begin(), ready.end(), [lowest_id](const std::shared_ptr<Thread> &ptr)
                 {
-                    return ptr->getId() == j;
+                    return ptr->getId() == lowest_id;
                 }), ready.end());
-        threads[j] = std::make_shared<Thread>(j, priority, entryPoint);
+
+        // Create the thread and add it to the queue, then return its ID:
+        threads[lowest_id] = std::make_shared<Thread>(lowest_id, priority, entryPoint);
         ++numOfThreads;
-        ready.push_back(threads[j]);
-        return j;
+        ready.push_back(threads[lowest_id]);
+        return lowest_id;
     } catch (std::bad_alloc &e)
     {
         std::cerr << SYS_ERROR_MEMORY_ALLOC;
@@ -229,27 +253,37 @@ void Scheduler::timerHandler(int)
 {
     if (me->ready.empty())
     {
-        return;
+    	// There are no threads in the queue, so keep running until the timer goes again.
+		me->setTimer(me->running->getPriority());
+		return;
     }
     auto runningId = me->running->getId();
+
     if (runningId != me->ready.front()->getId())
     {
+    	// Only if this thread is not also next in the queue, push it to the back.
         me->ready.push_back(std::shared_ptr<Thread>(me->running));
     }
 
     std::shared_ptr<Thread> prev = me->running;
+
+    // Get the next thread:
     me->running = std::shared_ptr<Thread>(me->ready.front());
     me->ready.pop_front();
     while (me->running->getState() == Thread::TERMINATED ||
            me->running->getState() == Thread::BLOCKED)
     {
+    	// Skip all the thread that are terminated or blocked:
         if (me->ready.empty())
         {
-            return;
+			me->setTimer(me->running->getPriority());
+			return;
         }
         me->running = std::shared_ptr<Thread>(me->ready.front());
         me->ready.pop_front();
     }
+
+    // Set the timer for the next thread and preform the context switch:
     me->setTimer(me->running->getPriority());
     if (prev->getId() != me->running->getId())
     {
@@ -275,18 +309,22 @@ int Scheduler::terminate(int tid)
         std::cerr << TERMINATION_ERR_MSG << tid << NON_EXISTENT_THREAD_MSG;
         return FAILURE;
     }
+    // Set the thread as terminated:
     threads[tid]->setState(Thread::TERMINATED);
-
     --numOfThreads;
 
     if (tid == MAIN_THREAD_ID)
     {
+    	// Main thread was terminated, so exit the program.
         clearAndExit();
     }
     if (running->getId() == tid)
     {
+    	// Put this thread in the queue so that its resources will be freed by a future thread
+    	// when it comes out of the queue:
         ready.push_back(std::shared_ptr<Thread>(threads[tid]));
-        auto previous = running;
+		// Running thread was terminated, so get the next thread:
+		auto previous = running;
         running = std::shared_ptr<Thread>(ready.front());
         while (running->getState() == Thread::TERMINATED ||
                running->getState() == Thread::BLOCKED)
@@ -301,15 +339,18 @@ int Scheduler::terminate(int tid)
                 running = std::shared_ptr<Thread>(ready.front());
             }
         }
+        // Release the pointer to this thread and switch:
         threads[tid].reset();
         dispatcher.switchToThread(std::move(previous), running);
     }
+    // Release the pointer to this thread:
     threads[tid].reset();
     return SUCCESS;
 }
 
 void Scheduler::clearAndExit()
 {
+	// Release all the pointers so resources are all freed:
     running.reset();
     ready.clear();
     for (auto &thread : threads)
@@ -329,23 +370,24 @@ int Scheduler::block(int tid)
 {
     if (tid == MAIN_THREAD_ID || threads[tid] == nullptr)
     {
+    	// It's an error to block the main thread.
         std::cerr << BLOCK_ERR_MSG << tid << '\n';
         return FAILURE;
     }
+    // Set the state as blocked:
     threads[tid]->setState(Thread::BLOCKED);
     if (tid != running->getId())
     {
-        for (auto it = ready.begin(); it != ready.end(); it++)
-        {
-            if (it->get()->getId() == tid)
-            {
-                ready.erase(it);
-                break;
-            }
-        }
+    	// Remove all pointers to this thread from the ready queue:
+		ready.erase(
+				std::remove_if(ready.begin(), ready.end(), [tid](const std::shared_ptr<Thread> &ptr)
+				{
+					return ptr->getId() == tid;
+				}), ready.end());
     }
     else
     {
+    	// Get the next thread:
         running = std::shared_ptr<Thread>(ready.front());
         while (running->getState() == Thread::TERMINATED ||
                running->getState() == Thread::BLOCKED)
@@ -360,6 +402,7 @@ int Scheduler::block(int tid)
                 running = std::shared_ptr<Thread>(ready.front());
             }
         }
+        // Preform the context switch:
         dispatcher.switchToThread(std::shared_ptr<Thread>(threads[tid]), running);
     }
     return SUCCESS;
@@ -374,6 +417,7 @@ int Scheduler::resume(int tid)
     }
     if (threads[tid]->getState() == Thread::BLOCKED)
     {
+    	// If the thread was indeed blocked, add it back to the queue:
         ready.push_back(std::shared_ptr<Thread>(threads[tid]));
         threads[tid]->setState(Thread::READY);
     }
@@ -399,4 +443,6 @@ int Scheduler::getThreadsQuantums(int tid)
     }
     return threads[tid]->getTotalQuantum();
 }
+
+// Set the static pointer to null:
 Scheduler *Scheduler::me = nullptr;
