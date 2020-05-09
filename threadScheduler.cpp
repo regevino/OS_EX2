@@ -186,7 +186,7 @@ void Scheduler::setTimer(int priority)
     }
 }
 
-int Scheduler::addThread(EntryPoint_t entryPoint, int priority)
+int Scheduler::addThread(Thread::EntryPoint_t entryPoint, int priority)
 {
     if (numOfThreads == MAX_THREAD_NUM || !quantums.count(priority))
     {
