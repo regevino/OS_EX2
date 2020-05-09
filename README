@@ -1,22 +1,39 @@
-regevino
-Dan Regev (208272518)
-EX: 1
+regevino,avih
+Dan Regev (208272518), Avinoam Hershler (208926964)
+EX: 2
 
 FILES:
-myfile.c -- a file with some code
-myfile.h -- a file with some headers
+threadScheduler.cpp
+threadScheduler.h
+uthreads.cpp - an implementation of the threads library.
+README - this file.
+Makefile
 
 REMARKS:
-These are some remarks that
-I want the graders to know
-about this submission.
 
 ANSWERS:
 
 Q1:
-Here are answers to theoreical questions
-if there were such questions in the exercise.
+An example for usage of user-level-threads can be parallelized algorithms which divide
+batch jobs into several segments in order to decrease run-time. In such a case decreasing
+the context switch overhead would be a priority while there will be little risk of one
+thread blocking the others.
 
 Q2:
-Here are answers to theoreical questions
-if there were such questions in the exercise.
+Advantages:
+Creating a new process for each tab increases security by preventing tabs from accessing other
+tabs' resources.
+
+Disadvantages:
+Creating a new process for each tab increases the overhead for opening a new tab and increases
+memory usage overhead.
+
+Q3:
+Whenever we type in the shell an I/O interrupt is sent from the keyboard and passed by the OS
+to the shell. When we type "kill pid" the OS passes the SIGTERM signal to the process with
+that id.
+
+Q4:
+The 'virtual' time is the time in which the thread itself was running, whereas the 'real'
+time is the real time that passed on the system including OS intervention,
+context switches etc.
