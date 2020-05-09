@@ -69,8 +69,8 @@ public:
         TERMINATED
     };
 
-    Thread(int id, int quantum, int priority, EntryPoint_t entry, bool mainThread = false)
-            : id(id), quantum(quantum), totalQuantum(mainThread), priority(priority), state(READY),
+    Thread(int id, int priority, EntryPoint_t entry, bool mainThread = false)
+            : id(id), totalQuantum(mainThread), priority(priority), state(READY),
               stack(nullptr)
     {
         sigsetjmp(environment, 1);
@@ -132,7 +132,6 @@ public:
 
 private:
     int id;
-    int quantum;
     int totalQuantum;
     int priority;
     states state;
@@ -148,12 +147,13 @@ public:
     {
     }
 
-    void switchToThread(const std::shared_ptr<Thread> &currentThread,
+    void switchToThread(std::shared_ptr<Thread> &&currentThread,
                         const std::shared_ptr<Thread> &targetThread)
     {
         ++totalQuantums;
         targetThread->incrementTotalQuantum();
         int ret_val = sigsetjmp(currentThread->getEnvironment(), 1);
+        currentThread.reset();
         if (ret_val == 1)
         {
             return;
@@ -175,12 +175,25 @@ class Scheduler
 {
     static Scheduler *me;
 public:
-    explicit Scheduler(std::map<int, int> quantums) : numOfThreads(1), quantums(std::move(quantums))
+    explicit Scheduler(const std::map<int, int>& pQuantums) : numOfThreads(1)
     {
         me = this;
-        timer.it_interval.tv_sec = 0;
-        timer.it_interval.tv_usec = 0;
-        timer.it_value.tv_sec = 0;
+        for (const auto& quant: pQuantums )
+		{
+        	itimerval timer;
+			timer.it_interval.tv_sec = 0;
+			timer.it_interval.tv_usec = 0;
+			__suseconds_t usecs = quant.second;
+			__time_t seconds = 0;
+			while (usecs > 999999){
+				++seconds;
+				usecs -= 999999;
+			}
+			timer.it_value.tv_sec = seconds;
+			timer.it_value.tv_usec = usecs;
+			quantums[quant.first] = timer;
+		}
+
         sa.sa_handler = &Scheduler::timerHandler;
         if (sigaction(SIGVTALRM, &sa, NULL) < 0)
         {
@@ -189,7 +202,7 @@ public:
         }
         try
         {
-            auto mainThread = std::make_shared<Thread>(0, quantums[0], 0, nullptr, true);
+            auto mainThread = std::make_shared<Thread>(0, 0, nullptr, true);
             running = mainThread;
             threads[0] = mainThread;
             setTimer(0);
@@ -205,9 +218,10 @@ public:
 
     void setTimer(int priority)
     {
-        timer.it_value.tv_usec = quantums[priority];
-        if (setitimer(ITIMER_VIRTUAL, &timer, NULL))
+
+        if (setitimer(ITIMER_VIRTUAL, &quantums[priority], NULL))
         {
+        	perror("SETITIMER ERROR");
             std::cerr << "system error: setitimer failure.\n";
             exit(1);
         }
@@ -238,9 +252,9 @@ public:
             {
                 return ptr->getId() == j;
             }), ready.end());
-            threads[j] = std::make_shared<Thread>(j, quantums[priority], priority, entryPoint);
+            threads[j] = std::make_shared<Thread>(j, priority, entryPoint);
             ++numOfThreads;
-            ready.push_back(std::shared_ptr<Thread>(threads[j]));
+            ready.push_back(threads[j]);
             return j;
         } catch (std::bad_alloc &e)
         {
@@ -279,7 +293,7 @@ public:
         me->setTimer(me->running->getPriority());
         if (prev->getId() != me->running->getId())
         {
-            me->dispatcher.switchToThread(prev, me->running);
+            me->dispatcher.switchToThread(std::move(prev), me->running);
         }
 
     }
@@ -310,6 +324,7 @@ public:
 
         if (tid == 0)
         {
+
             clearAndExit();
         }
         if (running->getId() == tid)
@@ -331,7 +346,7 @@ public:
                 }
             }
             threads[tid].reset();
-            dispatcher.switchToThread(previous, running);
+            dispatcher.switchToThread(std::move(previous), running);
         }
         threads[tid].reset();
         return 0;
@@ -341,10 +356,11 @@ public:
     {
         running.reset();
         ready.clear();
-        for (int i = 0; i < MAX_THREAD_NUM; ++i)
+        for (auto & thread : threads)
         {
-            threads[i].reset();
+            thread.reset();
         }
+        std::cerr << "CLEARED AND EXITING NOW\n";
         exit(0);
     }
 
@@ -383,7 +399,7 @@ public:
                     running = std::shared_ptr<Thread>(ready.front());
                 }
             }
-            dispatcher.switchToThread(threads[tid], running);
+            dispatcher.switchToThread(std::shared_ptr<Thread>(threads[tid]), running);
         }
         return 0;
 
@@ -436,12 +452,11 @@ private:
 //    std::map<int, std::shared_ptr<Thread>> threads;
     std::shared_ptr<Thread> threads[MAX_THREAD_NUM];
     size_t numOfThreads;
-    std::map<int, int> quantums;
+    std::map<int, itimerval> quantums;
     std::shared_ptr<Thread> running;
     std::deque<std::shared_ptr<Thread>> ready;
     Dispatcher dispatcher;
     struct sigaction sa = {0};
-    struct itimerval timer;
 };
 
 Scheduler *Scheduler::me;
