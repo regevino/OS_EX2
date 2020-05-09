@@ -10,7 +10,7 @@ INCS=-I.
 CFLAGS = -Wall -std=c++11 -g $(INCS)
 CXXFLAGS = -Wall -std=c++11 -g $(INCS)
 
-UTHREADLIB = libutreads.a
+UTHREADLIB = libuthreads.a
 TARGETS = $(UTHREADLIB)
 
 TAR=tar
