@@ -12,17 +12,7 @@
 #define MAIN_THREAD_PRIORITY 0
 #define INITIAL_QUANTUMS 1
 #define INITIAL_NUM_OF_THREADS 1
-#define SIGEMPTYSET_FAILURE_MSG "system error: sigemptyset failure.\n"
-#define SIGACTION_FAILURE_MSG "system error: sigaction failure.\n"
-#define MEMORY_ALLOC_FAILURE_MSG "system error: Memory allocation failure.\n"
-#define SETITIMER_FAILURE_MSG "system error: setitimer failure.\n"
-#define BLOCK_ERR_MSG "thread library error: Cannot block thread with id "
-#define RESUME_ERR_MSG "thread library error: Cannot resume thread with id "
-#define NON_EXISTENT_THREAD_MSG ": No such thread.\n"
-#define QUANTUM_ERR_MSG "thread library error: Cannot get quantum of thread with id "
-#define TERMINATION_ERR_MSG "thread library error: Cannot terminate thread with id "
-#define CHANGE_PRIORITY_ERR_MSG "thread library error: Cannot change priority of thread with id "
-#define ADD_THREAD_ERR_MSG "thread library error: Cannot create new thread with priority "
+
 
 #ifdef __x86_64__
 /* code for 64 bit Intel arch */
@@ -78,7 +68,7 @@ Thread::Thread(int id, int priority, EntryPoint_t entry, bool mainThread)
         (environment->__jmpbuf)[JB_PC] = translate_address(pc);
         if (sigemptyset(&environment->__saved_mask))
         {
-            std::cerr << SIGEMPTYSET_FAILURE_MSG;
+            std::cerr << SYS_ERROR_SIGEMPTYSET;
             exit(EXIT_FAILURE);
         }
     }
@@ -149,6 +139,10 @@ int Dispatcher::getTotalQuantums() const
 
 Scheduler::Scheduler(const std::map<int, int> &pQuantums) : numOfThreads(INITIAL_NUM_OF_THREADS)
 {
+	if (me != nullptr)
+	{
+		throw SchedulerException();
+	}
     me = this;
     for (const auto &quant: pQuantums)
     {
@@ -170,7 +164,7 @@ Scheduler::Scheduler(const std::map<int, int> &pQuantums) : numOfThreads(INITIAL
     sa.sa_handler = &Scheduler::timerHandler;
     if (sigaction(SIGVTALRM, &sa, nullptr) < 0)
     {
-        std::cerr << SIGACTION_FAILURE_MSG;
+        std::cerr << SYS_ERROR_SIGACTION;
         exit(EXIT_FAILURE);
     }
     try
@@ -183,7 +177,7 @@ Scheduler::Scheduler(const std::map<int, int> &pQuantums) : numOfThreads(INITIAL
     }
     catch (std::bad_alloc &e)
     {
-        std::cerr << MEMORY_ALLOC_FAILURE_MSG;
+        std::cerr << SYS_ERROR_MEMORY_ALLOC;
         exit(EXIT_FAILURE);
     }
 }
@@ -192,7 +186,7 @@ void Scheduler::setTimer(int priority)
 {
     if (setitimer(ITIMER_VIRTUAL, &quantums[priority], nullptr))
     {
-        std::cerr << SETITIMER_FAILURE_MSG;
+        std::cerr << SYS_ERROR_SETITIMER;
         exit(EXIT_FAILURE);
     }
 }
@@ -226,7 +220,7 @@ int Scheduler::addThread(Thread::EntryPoint_t entryPoint, int priority)
         return j;
     } catch (std::bad_alloc &e)
     {
-        std::cerr << MEMORY_ALLOC_FAILURE_MSG;
+        std::cerr << SYS_ERROR_MEMORY_ALLOC;
         exit(EXIT_FAILURE);
     }
 }
@@ -325,7 +319,7 @@ void Scheduler::clearAndExit()
     sa.sa_handler = SIG_IGN;
     if (sigaction(SIGVTALRM, &sa, nullptr) < 0)
     {
-        std::cerr << SIGACTION_FAILURE_MSG;
+        std::cerr << SYS_ERROR_SIGACTION;
         exit(EXIT_FAILURE);
     }
     exit(EXIT_SUCCESS);
@@ -405,5 +399,4 @@ int Scheduler::getThreadsQuantums(int tid)
     }
     return threads[tid]->getTotalQuantum();
 }
-
-Scheduler *Scheduler::me;
+Scheduler *Scheduler::me = nullptr;

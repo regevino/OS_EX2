@@ -17,6 +17,27 @@
 #include <algorithm>
 
 
+
+// Error messages:
+
+#define SYS_ERROR_SIGPROCMASK "system error: sigprocmask failed.\n"
+#define SYS_ERROR_SIGEMPTYSET "system error: sigemptyset failure.\n"
+#define SYS_ERROR_SIGACTION "system error: sigaction failure.\n"
+#define SYS_ERROR_MEMORY_ALLOC "system error: Memory allocation failure.\n"
+#define SYS_ERROR_SETITIMER "system error: setitimer failure.\n"
+#define TLERROR_INIT_NEGATIVE_QUANTUM "thread library error: Cannot initialize library with negative quantum.\n"
+#define TLERROR_SPAWN_NEGATIVE_PRIORITY "thread library error: Cannot spawn thread with negative priority.\n"
+#define TLERROR_INIT_NO_QUANTUMS "thread library error: Cannot initialize library with no quantum values.\n"
+#define BLOCK_ERR_MSG "thread library error: Cannot block thread with id "
+#define RESUME_ERR_MSG "thread library error: Cannot resume thread with id "
+#define NON_EXISTENT_THREAD_MSG ": No such thread.\n"
+#define QUANTUM_ERR_MSG "thread library error: Cannot get quantum of thread with id "
+#define TERMINATION_ERR_MSG "thread library error: Cannot terminate thread with id "
+#define CHANGE_PRIORITY_ERR_MSG "thread library error: Cannot change priority of thread with id "
+#define ADD_THREAD_ERR_MSG "thread library error: Cannot create new thread with priority "
+
+
+
 /**
  * Class representing a user thread.
  */
@@ -37,6 +58,7 @@ public:
 	 * Pointer to a void function that is an entry point to a thread.
 	 */
 	typedef void (*EntryPoint_t)();
+
 
 	/**
 	 * contructor for a thread.
@@ -138,8 +160,12 @@ class Scheduler
 	static Scheduler *me;
 
 public:
+
+	class SchedulerException: std::exception
+	{};
+
 	/**
-	 * Constructor for scheduler. call only once.
+	 * Constructor for scheduler. Call only once. Further calls will raise SchedulerException.
 	 * @param pQuantums mapping between priorities and amount of milliseconds the quantum should
 	 * run for.
 	 */

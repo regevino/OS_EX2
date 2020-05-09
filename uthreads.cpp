@@ -6,6 +6,7 @@
 
 
 
+
 static std::shared_ptr<Scheduler> scheduler;
 static sigset_t maskSignals;
 
@@ -14,7 +15,7 @@ int uthread_init(int *quantum_usecs, int size)
 {
     if (size <= 0)
     {
-        std::cerr << "thread library error: Cannot initialize library with no quantum values.\n";
+        std::cerr << TLERROR_INIT_NO_QUANTUMS;
         return -1;
     }
 	sigemptyset(&maskSignals);
@@ -24,7 +25,7 @@ int uthread_init(int *quantum_usecs, int size)
     {
         if (quantum_usecs[i] < 0)
         {
-            std::cerr << "thread library error: Cannot initialize library with negative quantum.\n";
+            std::cerr << TLERROR_INIT_NEGATIVE_QUANTUM;
             return -1;
         }
         quantums[i] = quantum_usecs[i];
@@ -37,45 +38,81 @@ int uthread_spawn(void (*f)(), int priority)
 {
     if (priority < 0)
     {
-        std::cerr << "thread library error: Cannot spawn thread with negative priority.\n";
+        std::cerr << TLERROR_SPAWN_NEGATIVE_PRIORITY;
         return -1;
     }
-    sigprocmask(SIG_BLOCK, &maskSignals, nullptr);
+    if(sigprocmask(SIG_BLOCK, &maskSignals, nullptr))
+	{
+		std::cerr << SYS_ERROR_SIGPROCMASK;
+		exit(EXIT_FAILURE);
+	}
     int result = scheduler->addThread(f, priority);
-    sigprocmask(SIG_UNBLOCK, &maskSignals, nullptr);
-    return result;
+	if(sigprocmask(SIG_UNBLOCK, &maskSignals, nullptr))
+	{
+		std::cerr << SYS_ERROR_SIGPROCMASK;
+		exit(EXIT_FAILURE);
+	}
+	return result;
 }
 
 int uthread_change_priority(int tid, int priority)
 {
-	sigprocmask(SIG_BLOCK, &maskSignals, nullptr);
-	int result = scheduler->changePriority(tid, priority);
-	sigprocmask(SIG_UNBLOCK, &maskSignals, nullptr);
+	if(sigprocmask(SIG_BLOCK, &maskSignals, nullptr))
+	{
+		std::cerr << SYS_ERROR_SIGPROCMASK;
+		exit(1);
+	}	int result = scheduler->changePriority(tid, priority);
+	if(sigprocmask(SIG_UNBLOCK, &maskSignals, nullptr))
+	{
+		std::cerr << SYS_ERROR_SIGPROCMASK;
+		exit(EXIT_FAILURE);
+	}	
 	return result;
 }
 
 int uthread_terminate(int tid)
 {
-    sigprocmask(SIG_BLOCK, &maskSignals, nullptr);
-    int result = scheduler->terminate(tid);
-    sigprocmask(SIG_UNBLOCK, &maskSignals, nullptr);
-    return result;
+	if(sigprocmask(SIG_BLOCK, &maskSignals, nullptr))
+	{
+		std::cerr << SYS_ERROR_SIGPROCMASK;
+		exit(EXIT_FAILURE);
+	}    int result = scheduler->terminate(tid);
+	if(sigprocmask(SIG_UNBLOCK, &maskSignals, nullptr))
+	{
+		std::cerr << SYS_ERROR_SIGPROCMASK;
+		exit(EXIT_FAILURE);
+	}    
+	return result;
 }
 
 int uthread_block(int tid)
 {
-    sigprocmask(SIG_BLOCK, &maskSignals, nullptr);
-    int result = scheduler->block(tid);
-    sigprocmask(SIG_UNBLOCK, &maskSignals, nullptr);
-    return result;
+	if(sigprocmask(SIG_BLOCK, &maskSignals, nullptr))
+	{
+		std::cerr << SYS_ERROR_SIGPROCMASK;
+		exit(EXIT_FAILURE);
+	}    int result = scheduler->block(tid);
+	if(sigprocmask(SIG_UNBLOCK, &maskSignals, nullptr))
+	{
+		std::cerr << SYS_ERROR_SIGPROCMASK;
+		exit(EXIT_FAILURE);
+	}    
+	return result;
 }
 
 int uthread_resume(int tid)
 {
-    sigprocmask(SIG_BLOCK, &maskSignals, nullptr);
-    int result = scheduler->resume(tid);
-    sigprocmask(SIG_UNBLOCK, &maskSignals, nullptr);
-    return result;
+	if(sigprocmask(SIG_BLOCK, &maskSignals, nullptr))
+	{
+		std::cerr << SYS_ERROR_SIGPROCMASK;
+		exit(EXIT_FAILURE);
+	}    int result = scheduler->resume(tid);
+	if(sigprocmask(SIG_UNBLOCK, &maskSignals, nullptr))
+	{
+		std::cerr << SYS_ERROR_SIGPROCMASK;
+		exit(EXIT_FAILURE);
+	}
+	return result;
 }
 
 int uthread_get_tid()
